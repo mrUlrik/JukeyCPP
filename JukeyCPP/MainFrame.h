@@ -7,7 +7,7 @@ public:
 	MainFrame(const wxString& title);
 
 private:
-	enum ButtonIDs
+	enum IDs
 	{
 		BUTTON_0 = 101,
 		BUTTON_1,
@@ -34,7 +34,10 @@ private:
 		BUTTON_NEG
 	};
 
-	void OnButtonClicked(wxCommandEvent& evt);
-	wxTextCtrl* displayBox;
 	wxDECLARE_EVENT_TABLE();
+	void OnButtonClicked(wxCommandEvent& evt);
+	wxTextCtrl* m_displayBox;
+
+	// Introduction of a completely optional end-user feature. 
+	bool m_calculationComplete;
 };

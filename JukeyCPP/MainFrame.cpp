@@ -8,7 +8,7 @@
 // EVT_COMMAND_RANGE maps any button with an ID between BUTTON_0 and BUTTON_NEG
 // (inclusive) to the MainFrame::OnButtonClicked handler.
 // This allows all button click events to be processed by a single method. Our 
-// ButtonIDs enumerator starts with BUTTON_0 and ends with BUTTON_NEG.
+// IDs enumerator starts with BUTTON_0 and ends with BUTTON_NEG.
 wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
 	EVT_COMMAND_RANGE(MainFrame::BUTTON_0, MainFrame::BUTTON_NEG, wxEVT_BUTTON, MainFrame::OnButtonClicked)
 wxEND_EVENT_TABLE()
@@ -25,13 +25,16 @@ wxEND_EVENT_TABLE()
 MainFrame::MainFrame(const wxString& title)
 	: wxFrame(nullptr, wxID_ANY, title)
 {
+	// Initially, no calculation has been performed.
+	m_calculationComplete = false;
+
 	// Use a vertical box sizer to stack the display control above the button grid.
 	wxBoxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
 
 	// Create the display text control. wxTE_RIGHT aligns text to the right, which
 	// is typical for calculator displays.
-	displayBox = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_RIGHT);
-	mainSizer->Add(displayBox, 0, wxEXPAND | wxALL, 5);
+	m_displayBox = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_RIGHT);
+	mainSizer->Add(m_displayBox, 0, wxEXPAND | wxALL, 5);
 
 	// Create a grid sizer (6 rows, 4 columns) with spacing of 5 pixels between cells.
 	wxGridSizer* grid = new wxGridSizer(6, 4, 5, 5);
@@ -65,7 +68,7 @@ MainFrame::MainFrame(const wxString& title)
 	grid->Add(new wxButton(this, BUTTON_ADD, "+"), 1, wxEXPAND);
 
 	// Bottom row: negate toggle, zero, decimal point, equals
-	grid->Add(new wxButton(this, BUTTON_NEG, "±"), 1, wxEXPAND);
+	grid->Add(new wxButton(this, BUTTON_NEG, "-"), 1, wxEXPAND);
 	grid->Add(new wxButton(this, BUTTON_0, "0"), 1, wxEXPAND);
 	grid->Add(new wxButton(this, BUTTON_DECIMAL, "."), 1, wxEXPAND);
 	grid->Add(new wxButton(this, BUTTON_EQUALS, "="), 1, wxEXPAND);
@@ -96,7 +99,7 @@ void MainFrame::OnButtonClicked(wxCommandEvent& evt)
 
 	// Read the button label (e.g., "1", "+", "sin") and the current display text.
 	wxString label = btn->GetLabel();
-	wxString currentText = displayBox->GetValue();
+	wxString currentText = m_displayBox->GetValue();
 
 	// Handle the equals button: perform calculation based on the contents of the display.
 	if (id == BUTTON_EQUALS)
@@ -158,6 +161,15 @@ void MainFrame::OnButtonClicked(wxCommandEvent& evt)
 				// Get the first token (the left operand).
 				wxString firstToken = tokenizer.GetNextToken();
 
+				if (firstToken.IsEmpty())
+				{
+					// If the first token is empty, it means the user input started with
+					// an operator (e.g., "-5+3"). We can handle this by prepending a '0'
+					// to the expression to make it "0-5+3".
+					wxString delimiter = tokenizer.GetLastDelimiter();
+					firstToken = delimiter + tokenizer.GetNextToken();
+				}
+
 				// Convert first token to double and ensure there is a second token.
 				if (tokenizer.HasMoreTokens() && firstToken.ToDouble(&num1))
 				{
@@ -170,11 +182,12 @@ void MainFrame::OnButtonClicked(wxCommandEvent& evt)
 					// For example, they entered: 5+-1. We catch '+' as the operator and '' as the
 					// second token because there is nothing between '+' and '-'.
 					wxString secondToken = tokenizer.GetNextToken();
-					if (secondToken.empty() && tokenizer.GetLastDelimiter() == '-')
+					if (secondToken.IsEmpty())
 					{
 						// And since we're dealing with text here, the cheat is just to prepend a
 						// '-' to the next token we get to treat it as a negative number.
-						secondToken = '-' + tokenizer.GetNextToken();
+						wxString delimiter = tokenizer.GetLastDelimiter();
+						secondToken = delimiter + tokenizer.GetNextToken();
 					}
 
 					// Convert second token to double and perform the corresponding operation.
@@ -195,47 +208,67 @@ void MainFrame::OnButtonClicked(wxCommandEvent& evt)
 
 		// If a calculation was completed successfully, format the result and set the display.
 		// Format "%.6g" prints up to 6 significant digits and avoids trailing zeros.
-		if (isValidMath) displayBox->SetValue(wxString::Format("%.6g", result));
+		if (isValidMath) m_displayBox->SetValue(wxString::Format("%.6g", result));
 
 		// If no valid math operation was parsed or conversion failed, notify the user.
-		else displayBox->SetValue("Error: Unable to parse user input.");
+		else m_displayBox->SetValue("Error: Unable to parse user input.");
+
+		m_calculationComplete = true;
 	}
 	
-	// Backspace: remove the last character if any.
+	// Clear: clears the entire field
 	else if (id == BUTTON_CLEAR)
 	{
-		displayBox->Clear();
+		currentText.clear();
+		m_displayBox->Clear();
 	}
 	
-	// Negate toggle: append or remove a trailing '-' character.
-	// This is a simple toggle and doesn't attempt to insert a negative sign before a number.
+	// Back: removes the last character from the display if not empty.
 	else if (id == BUTTON_BACK)
 	{
 		if (!currentText.IsEmpty())
 		{
 			currentText.RemoveLast();
-			displayBox->SetValue(currentText);
+			m_displayBox->SetValue(currentText);
 		}
-	}
-
-	// Negate toggle: append or remove a trailing '-' character.
-	// This is a simple toggle and doesn't attempt to insert a negative sign before a number.
-	else if (id == BUTTON_NEG)
-	{
-		// If the last character is '-', remove it to "toggle off" negativity.
-		// Very basic convenience feature for the end user; absolutely not required.
-		if (!currentText.IsEmpty() && currentText.Last() == '-') currentText.RemoveLast();
-		else currentText += "-";
-
-		displayBox->SetValue(currentText);
 	}
 	
 	// Default behavior: append the button label to the display. This handles digits,
 	// decimal point, operators (those mapped as buttons), and trig labels when typed.
 	else
 	{
+
+		// BEGIN: Totally optional UX improvement.
+		// If a calculation was just completed and the user presses a digit or decimal point,
+		// clear the display before appending new input.
+		if (m_calculationComplete) {
+
+			// Check if the button pressed is an operator. If button label is one of "+", "-", "x", "/", "%".
+			bool isOperator = (label == "+" || label == "-" || label == "x" || label == "/" || label == "%");
+
+			// If the screen says "Error", we must ALWAYS clear it.
+			if (currentText.StartsWith("Error"))
+			{
+				currentText.clear();
+				m_displayBox->Clear();
+			}
+
+			// If it's a valid number, we only clear if they typed a new NUMBER or TRIG function.
+			// We do NOT clear if they typed an OPERATOR (because they want to do 10 + 5).
+			else if (!isOperator)
+			{
+				currentText.clear();
+				m_displayBox->Clear();
+			}
+
+			// We have handled the state, so reset it.
+			m_calculationComplete = false;
+		}
+
+		// END: Totally optional UX improvement.
+
 		currentText += label;
-		displayBox->SetValue(currentText);
+		m_displayBox->SetValue(currentText);
 	}
 
 	// Allow other handlers to process this event if needed. Built-in function to the
