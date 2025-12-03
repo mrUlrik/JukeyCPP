@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="JukeyCPP/JukeyCPP.vcxproj" Id="b60ae801-fac2-4b63-a835-f5da81e35df4" />
+</Solution>
